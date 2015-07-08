@@ -1,0 +1,95 @@
+#! /bin/sh
+# Build statically linked ipmitool inside CentOS 4.x i386 docker image
+#
+# Written by Ewen McNeill <ewen@naos.co.nz>, 2015-07-08
+#
+#---------------------------------------------------------------------------
+# Copyright (c) 2015, Naos Ltd and LocalCloud Ltd
+# All rights reserved.
+# 
+# Redistribution and use in source and binary forms, with or without
+# modification, are permitted provided that the following conditions
+# are met:
+# 
+# 1. Redistributions of source code must retain the above copyright
+# notice, this list of conditions and the following disclaimer.
+# 
+# 2. Redistributions in binary form must reproduce the above copyright
+# notice, this list of conditions and the following disclaimer in the
+# documentation and/or other materials provided with the distribution.
+# 
+# 3. Neither the name of the copyright holder nor the names of its
+# contributors may be used to endorse or promote products derived
+# from this software without specific prior written permission.
+# 
+# THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
+# "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
+# LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS
+# FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE
+# COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT,
+# INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING,
+# BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES;
+# LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
+# CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT
+# LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN
+# ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
+# POSSIBILITY OF SUCH DAMAGE.
+#---------------------------------------------------------------------------
+
+IPMITOOL_TAR="ipmitool_1.8.14.tar.gz"
+IPMITOOL_TAR_URL="http://http.debian.net/debian/pool/main/i/ipmitool/ipmitool_1.8.14.orig.tar.gz"
+IPMITOOL_TAR_SHA256SUM="fe9bce4587f83fe0fd7c4d86fd3241fe41cb661ebc5c7321128d59cc295874ab"
+IPMITOOL_TAR_DIR="ipmitool-1.8.14"
+
+# Stop on errors
+set -e
+
+# Ensure build dependencies are installed
+yum -y install gcc4 make
+
+# Change into a build root
+BUILD_BASE=$(mktemp -d)
+cd "${BUILD_BASE}"
+
+# Download source archive and verify checksum
+curl -L -o "${IPMITOOL_TAR}" "${IPMITOOL_TAR_URL}"
+echo "${IPMITOOL_TAR_SHA256SUM}  ${IPMITOOL_TAR}" | sha256sum -c -
+
+# Unpack the tar archive
+tar -xzf "${IPMITOOL_TAR}"
+
+# Configure and build the source
+cd "${IPMITOOL_TAR_DIR}"
+CC=gcc4 CFLAGS=-m32 LDFLAGS=-static ./configure
+make
+
+# Manually link it again, so that it is completely static
+#
+# libtool "-static" just means "don't make dynamic libraries", rather than
+# "link binaries static"; for static binaries we need "-all-static", but
+# we cannot pass that in LDFLAGS, because gcc does not understand it, so 
+# the configure script will fail.
+#
+# NOTE: this is not a completely stand alone static binary because certain
+# name-related functions will use dynamic libraries; but for simple local
+# setting of an IPMI managment card this should not matter.  You will get
+# warnings like:
+#
+# plugins/.libs/libintf.a(ipmi_intf.o)(.text+0x845): In function `ipmi_intf_socket_connect':
+# : warning: Using 'getaddrinfo' in statically linked applications requires at runtime the shared libraries from the glibc version used for linking
+# ../lib/.libs/libipmitool.a(ipmi_tsol.o)(.text+0xf30): In function `ipmi_tsol_main':
+# : warning: Using 'gethostbyname' in statically linked applications requires at runtime the shared libraries from the glibc version used for linking
+#
+# that can be safely ignored providing you never use features that call
+# those functions.
+#
+(cd src &&
+/bin/sh ../libtool --silent --tag=CC --mode=link gcc4 -m32 \
+        -fno-strict-aliasing -Wreturn-type -all-static     \
+        -o ipmitool.static                                 \
+           ipmitool.o ipmishell.o ../lib/libipmitool.la plugins/libintf.la)
+
+# Optionally copy the built binary to some specific location
+if [ -n "${1}" ]; then
+  cp -p "src/ipmitool.static" "${1}"
+fi
