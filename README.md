@@ -43,7 +43,8 @@ adapt to building an image that will work as a 32-bit image:
     git clone https://github.com/blalor/docker-centos4-base.git
     cd docker-centos4-base
     vi build.sh       # Change arch from x86_64 to i386, comment out EPEL
-    docker run --privileged -i -t -v $PWD:/srv centos:centos6 /srv/build.sh i386    docker build -t centos4_i386 .
+    docker run --privileged -i -t -v $PWD:/srv centos:centos6 /srv/build.sh i386
+    docker build -t centos4_i386 .
 
 It appears for some reason that the EPEL setup does not work with the i386
 install, possibly due to not having changed enough yum repositories at that
@@ -51,7 +52,7 @@ point, but since EPEL is not required for the `ipmitool` build it can just
 be commented out.
 
 
-## Building `ipmitool.static`
+### Building `ipmitool.static`
 
 To build the Docker image:
 
